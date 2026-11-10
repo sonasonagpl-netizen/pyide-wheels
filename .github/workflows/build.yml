@@ -56,14 +56,27 @@ jobs:
       - name: Download Chaquopy target (Python for Android)
         working-directory: chaquopy
         run: target/download-target.sh maven/com/chaquo/python/target/${{ inputs.target_version }}
-      - name: Build wheel
+      - name: Build wheel (downloads missing host requirements automatically)
         shell: bash -el {0}
         working-directory: chaquopy/server/pypi
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk   # SDK المثبّت مسبقاً على أجهزة GitHub
         run: |
+          set -eo pipefail
           pip install -r requirements.txt
-          ./build-wheel.py --python ${{ inputs.python }} --abi ${{ matrix.abi }} ${{ matrix.package }}
+          ok=0
+          for attempt in $(seq 1 12); do
+            echo "::group::build attempt $attempt"
+            if ./build-wheel.py --python ${{ inputs.python }} --abi ${{ matrix.abi }} ${{ matrix.package }} 2>&1 | tee build.log; then
+              ok=1
+              echo "::endgroup::"
+              break
+            fi
+            echo "::endgroup::"
+            python "$GITHUB_WORKSPACE/scripts/fetch_dep.py" --log build.log \
+              --abi ${{ matrix.abi }} --python ${{ inputs.python }} --dist dist || exit 1
+          done
+          [ "$ok" = 1 ] || { echo "too many attempts"; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.package }}-${{ matrix.abi }}
