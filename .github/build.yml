@@ -1,19 +1,20 @@
 name: build-wheels
 
+# تشغيل يدوي: Actions → build-wheels → Run workflow
 on:
   workflow_dispatch:
     inputs:
       chaquopy_ref:
-        description: "chaquo/chaquopy branch or tag for build-wheel"
+        description: "فرع/وسم chaquo/chaquopy الذي تُؤخذ منه أداة build-wheel"
         default: "master"
       python:
-        description: "Target Python version (must match the app)"
+        description: "إصدار بايثون الهدف (يجب أن يطابق build.gradle.kts في التطبيق)"
         default: "3.11"
       target_version:
-        description: "Chaquopy Python target; try 3.11.14-0 if the default fails"
+        description: "إصدار بايثون الهدف لدى Chaquopy (مجلد maven/com/chaquo/python/target/...)؛ جرّب 3.11.14-0 إن فشل"
         default: "3.11.10-0"
       release_tag:
-        description: "Release tag for the wheels, e.g. wheels-2026-11-09"
+        description: "وسم الإصدار الذي تُرفع إليه الـ wheels (مثل wheels-2026-11-09)"
         required: true
 
 jobs:
@@ -51,8 +52,8 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
-      - uses: android-actions/setup-android@v3
+          java-version: "17"   # أدوات سطر أوامر SDK الحديثة تحتاج Java 17+
+    
       - name: Download Chaquopy target (Python for Android)
         working-directory: chaquopy
         run: target/download-target.sh maven/com/chaquo/python/target/${{ inputs.target_version }}
@@ -60,7 +61,7 @@ jobs:
         shell: bash -el {0}
         working-directory: chaquopy/server/pypi
         env:
-          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
           pip install -r requirements.txt
           ./build-wheel.py --python ${{ inputs.python }} --abi ${{ matrix.abi }} ${{ matrix.package }}
@@ -99,3 +100,5 @@ jobs:
           path: site
       - id: deploy
         uses: actions/deploy-pages@v4
+
+     
