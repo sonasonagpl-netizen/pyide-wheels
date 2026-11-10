@@ -1,0 +1,101 @@
+name: build-wheels
+
+# تشغيل يدوي: Actions → build-wheels → Run workflow
+on:
+  workflow_dispatch:
+    inputs:
+      chaquopy_ref:
+        description: "فرع/وسم chaquo/chaquopy الذي تُؤخذ منه أداة build-wheel"
+        default: "master"
+      python:
+        description: "إصدار بايثون الهدف (يجب أن يطابق build.gradle.kts في التطبيق)"
+        default: "3.11"
+      target_version:
+        description: "إصدار بايثون الهدف لدى Chaquopy (مجلد maven/com/chaquo/python/target/...)؛ جرّب 3.11.14-0 إن فشل"
+        default: "3.11.10-0"
+      release_tag:
+        description: "وسم الإصدار الذي تُرفع إليه الـ wheels (مثل wheels-2026-11-09)"
+        required: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-22.04
+    outputs:
+      packages: ${{ steps.p.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: p
+        run: |
+          pkgs=$(grep -v '^\s*#' packages.txt | sed '/^\s*$/d' | jq -R . | jq -cs .)
+          echo "packages=$pkgs" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.plan.outputs.packages) }}
+        abi: [arm64-v8a, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: chaquo/chaquopy
+          ref: ${{ inputs.chaquopy_ref }}
+          path: chaquopy
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: ${{ inputs.python }}
+          activate-environment: build-wheel
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"   # أدوات سطر أوامر SDK الحديثة تحتاج Java 17+
+      - name: Download Chaquopy target (Python for Android)
+        working-directory: chaquopy
+        run: target/download-target.sh maven/com/chaquo/python/target/${{ inputs.target_version }}
+      - name: Build wheel
+        shell: bash -el {0}
+        working-directory: chaquopy/server/pypi
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk   # SDK المثبّت مسبقاً على أجهزة GitHub
+        run: |
+          pip install -r requirements.txt
+          ./build-wheel.py --python ${{ inputs.python }} --abi ${{ matrix.abi }} ${{ matrix.package }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.package }}-${{ matrix.abi }}
+          path: chaquopy/server/pypi/dist/**/*.whl
+
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Upload wheels to a release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          files: dist/*.whl
+      - name: Generate index
+        run: |
+          python scripts/make_index.py --wheels dist --out site/simple \
+            --base-url "https://github.com/${{ github.repository }}/releases/download/${{ inputs.release_tag }}"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
