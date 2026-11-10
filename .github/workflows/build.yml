@@ -77,10 +77,21 @@ jobs:
               --abi ${{ matrix.abi }} --python ${{ inputs.python }} --dist dist || exit 1
           done
           [ "$ok" = 1 ] || { echo "too many attempts"; exit 1; }
+          # اجمع الـ wheel الناتج فقط (وليس التبعيات التي نُزّلت إلى dist) في مجلد out
+          pkg_file=$(echo "${{ matrix.package }}" | tr '-' '_')
+          mkdir -p out
+          find dist -iname "${pkg_file}-*.whl" -exec cp {} out/ \;
+          echo "Built wheels:"; ls -l out
+          if [ -z "$(ls -A out)" ]; then
+            echo "::error::build-wheel succeeded but no ${pkg_file}-*.whl was found. Files in dist:"
+            find dist -name '*.whl'
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.package }}-${{ matrix.abi }}
-          path: chaquopy/server/pypi/dist/**/*.whl
+          path: chaquopy/server/pypi/out/*.whl
+          if-no-files-found: error
 
   publish:
     needs: build
