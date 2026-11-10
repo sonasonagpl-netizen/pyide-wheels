@@ -28,9 +28,12 @@ def main():
     a = ap.parse_args()
 
     groups = defaultdict(list)
-    for fn in sorted(os.listdir(a.wheels)):
-        if fn.endswith(".whl"):
-            groups[canon(fn.split("-")[0])].append(fn)
+    paths = {}
+    for root, _dirs, names in os.walk(a.wheels):  # download-artifact قد يضع الملفات في مجلدات فرعية
+        for fn in sorted(names):
+            if fn.endswith(".whl") and fn not in paths:
+                paths[fn] = os.path.join(root, fn)
+                groups[canon(fn.split("-")[0])].append(fn)
     if not groups:
         sys.exit("لا توجد ملفات .whl في " + a.wheels)
 
@@ -43,7 +46,7 @@ def main():
         os.makedirs(d, exist_ok=True)
         rows = ["<!DOCTYPE html><html><body>"]
         for fn in files:
-            with open(os.path.join(a.wheels, fn), "rb") as f:
+            with open(paths[fn], "rb") as f:
                 sha = hashlib.sha256(f.read()).hexdigest()
             rows.append('<a href="%s/%s#sha256=%s">%s</a><br>' % (base, fn, sha, html.escape(fn)))
         rows.append("</body></html>")
